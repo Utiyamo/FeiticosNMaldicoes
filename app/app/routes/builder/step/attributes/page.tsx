@@ -127,8 +127,6 @@ export async function action({ request }: Route.ActionArgs) {
       attributes: finalAttrs,
     });
 
-    console.log("AttributesStep - action - result:", result);
-
     if (!result.success) {
       return json(
         {

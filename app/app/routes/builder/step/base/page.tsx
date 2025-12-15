@@ -14,8 +14,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const code = await getAuthCode(request);
   if (!code) return redirect("/");
 
-  console.log("Loader do passo 'base' executado com sucesso.");
-
   // ✅ Carrega progresso salvo (se houver)
   const session = await createAuthSession(code); // reutiliza sessionStorage
   const savedData = session.get("characterData") ?? {};

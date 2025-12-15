@@ -3,12 +3,19 @@ import { Form, useLoaderData, useNavigate, redirect } from 'react-router';
 import { getAuthCode, getSession, commitSession } from '~/utils/auth.server';
 import type { Route } from './+types/page';
 
+interface SpecializationProps {
+  id: string;
+  title: string;
+  icon: string;
+  color: string;
+}
+
 // 🔹 Especializações válidas (p.44)
-const SPECIALIZATIONS = [
+const ALL_SPECIALIZATIONS = [
   { id: 'Lutador', title: 'Lutador', icon: '⚔️', color: 'bg-red-900/20 border-red-700' },
   { id: 'Especialista em Combate', title: 'Especialista em Combate', icon: '🛡️', color: 'bg-amber-900/20 border-amber-700' },
   { id: 'Especialista em Técnica', title: 'Especialista em Técnica', icon: '🌀', color: 'bg-purple-900/20 border-purple-700' },
-  { id: 'Controlador', title: 'Controlador', icon: ' Puppet', color: 'bg-emerald-900/20 border-emerald-700' },
+  { id: 'Controlador', title: 'Controlador', icon: '🎭', color: 'bg-emerald-900/20 border-emerald-700' }, // ✅ Corrigido ícone
   { id: 'Suporte', title: 'Suporte', icon: '✚', color: 'bg-blue-900/20 border-blue-700' },
   { id: 'Restringido', title: 'Restringido', icon: '⛓️', color: 'bg-gray-900/20 border-gray-700' },
 ] as const;
@@ -19,12 +26,31 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const session = await getSession(request);
   const savedData = session.get('characterData') ?? {};
+
+  // ✅ Redireciona imediatamente se for Restringido (único caso obrigatório)
+  if (savedData.origin === 'Restringido') {
+    return redirect('/builder/specialization/restringido');
+  }
+
   return { savedData };
 }
 
 export default function SpecializationStep() {
   const { savedData } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
+
+  // ✅ Filtra especializações com base na origem — dentro do componente
+  const permittedSpecializations = (() => {
+    if (savedData.origin === 'Sem-Técnica') {
+      return ALL_SPECIALIZATIONS.filter(
+        spec => spec.id !== 'Especialista em Técnica' &&
+                spec.id !== 'Controlador' &&
+                spec.id !== 'Suporte'
+      );
+    }
+    // Para todas as outras origens, permite todas
+    return ALL_SPECIALIZATIONS;
+  })();
 
   return (
     <div className="min-h-screen bg-gray-900 text-white py-8 px-4 sm:px-6">
@@ -37,7 +63,7 @@ export default function SpecializationStep() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {SPECIALIZATIONS.map(spec => (
+          {permittedSpecializations.map(spec => (
             <Form key={spec.id} method="post" replace>
               <input type="hidden" name="specialization" value={spec.id} />
               <button
@@ -48,14 +74,16 @@ export default function SpecializationStep() {
               >
                 <span className="text-3xl mb-2">{spec.icon}</span>
                 <h3 className="text-xl font-bold">{spec.title}</h3>
+                {/* 
                 <p className="text-sm text-gray-300 mt-2">
                   {spec.id === 'Lutador' && 'PV: 12 + CON, PE: 4'}
                   {spec.id === 'Especialista em Combate' && 'PV: 12 + CON, PE: 4'}
                   {spec.id === 'Especialista em Técnica' && 'PV: 10 + CON, PE: 6 + INT/SAB'}
                   {spec.id === 'Controlador' && 'PV: 10 + CON, PE: 5 + INT/SAB'}
                   {spec.id === 'Suporte' && 'PV: 10 + CON, PE: 5 + INT/SAB'}
-                  {spec.id === 'Restringido' && 'PV: 16 + CON, Estamina'}
+                  {spec.id === 'Restringido' && 'PV: 16 + CON, Estamina (abre mão de PE e feitiços)'}
                 </p>
+                */}
               </button>
             </Form>
           ))}
@@ -73,7 +101,7 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const specialization = String(formData.get('specialization'));
 
-  const valid = SPECIALIZATIONS.some(s => s.id === specialization);
+  const valid = ALL_SPECIALIZATIONS.some(s => s.id === specialization);
   if (!valid) return { error: 'Especialização inválida' };
 
   const session = await getSession(request);
@@ -83,7 +111,7 @@ export async function action({ request }: Route.ActionArgs) {
   session.set('characterData', updated);
   const headers = { 'Set-Cookie': await commitSession(session) };
 
-  // Redireciona para detalhes
+  // Redireciona para detalhes — validação de energia será feita no destino
   const slug = specialization.toLowerCase().replace(/\s+/g, '-');
   return redirect(`/builder/specialization/${slug}`, { headers });
 }

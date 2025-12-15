@@ -1,82 +1,93 @@
-import type { CharacterSheet, FlowStep, FlowStepId } from './builder';
+import type { CharacterSheet, FlowStep, FlowStepId } from "./builder";
 
 export const flow: FlowStep[] = [
   {
-    id: 'auth',
-    title: 'Autenticação',
-    path: '/',
-    next: 'base',
+    id: "auth",
+    title: "Autenticação",
+    path: "/",
+    next: "base",
   },
   {
-    id: 'base',
-    title: 'Dados Básicos',
-    path: '/builder/step/base',
-    next: 'personal',
+    id: "base",
+    title: "Dados Básicos",
+    path: "/builder/step/base",
+    next: "personal",
   },
   {
-    id: 'personal',
-    title: 'Aspectos Pessoais',
-    path: '/builder/step/personal',
-    next: 'attributes',
+    id: "personal",
+    title: "Aspectos Pessoais",
+    path: "/builder/step/personal",
+    next: "attributes",
   },
   {
-    id: 'attributes',
-    title: 'Atributos e Origem',
-    path: '/builder/step/attributes',
-    next: 'origin',
+    id: "attributes",
+    title: "Atributos e Origem",
+    path: "/builder/step/attributes",
+    next: "origin",
   },
   {
-    id: 'origin',
-    title: 'Origem',
-    path: '/builder/step/origin',
+    id: "origin",
+    title: "Origem",
+    path: "/builder/step/origin",
     next: {
-      if: (data) =>
-        data.talents?.level1 === 'Incremento de Atributo',
-      then: 'attribute-increment',
-      else: 'specialization',
+      if: (data) => data.talents?.level1 === "Incremento de Atributo",
+      then: "attribute-increment",
+      else: "specialization",
     },
   },
   {
-    id: 'attribute-increment',
-    title: 'Incremento de Atributo',
-    path: '/builder/step/attribute-increment',
-    next: 'specialization',
+    id: "attribute-increment",
+    title: "Incremento de Atributo",
+    path: "/builder/step/attribute-increment",
+    next: "specialization",
   },
   {
-    id: 'specialization',
-    title: 'Especialização',
-    path: '/builder/step/specialization',
-    next: 'equipment',
+    id: "specialization",
+    title: "Especialização",
+    path: "/builder/step/specialization",
+    next: {
+      if: (data) =>
+        Array.isArray(data.specializationDetails.freeSkills) &&
+        data.specializationDetails.freeSkills.includes("Ofício"),
+      then: "craft-selection",
+      else: "equipment",
+    },
   },
   {
-    id: 'equipment',
-    title: 'Equipamentos',
-    path: '/builder/step/equipment',
-    next: 'spells',
+    id: "craft-selection",
+    title: "Escolha de Ofício",
+    path: "/builder/step/craft-selection",
+    next: "equipment",
   },
   {
-    id: 'spells',
-    title: 'Técnicas e Feitiços',
-    path: '/builder/step/spells',
-    next: 'final-details',
+    id: "equipment",
+    title: "Equipamentos",
+    path: "/builder/step/equipment",
+    next: "spells",
   },
   {
-    id: 'final-details',
-    title: 'Detalhes Finais',
-    path: '/builder/step/final-details',
-    next: 'appearance',
+    id: "spells",
+    title: "Técnicas e Feitiços",
+    path: "/builder/step/spells",
+    next: "final-details",
   },
   {
-    id: 'appearance',
-    title: 'Aparência',
-    path: '/builder/step/appearance',
-    next: 'review',
+    id: "final-details",
+    title: "Detalhes Finais",
+    path: "/builder/step/final-details",
+    next: "appearance",
   },
   {
-    id: 'review',
-    title: 'Revisão e Impressão',
-    path: '/builder/review',
-    next: 'review',
+    id: "appearance",
+    title: "Aparência",
+    path: "/builder/step/appearance",
+    next: "review",
+  },
+  {
+    id: "review",
+    title: "Revisão e Impressão",
+    path: "/builder/review",
+    next: "review",
   },
 ];
 
@@ -89,9 +100,9 @@ export function getNextStepId(
   data: Partial<CharacterSheet>
 ): FlowStepId {
   const step = getStepById(currentId);
-  if (!step) return 'base';
+  if (!step) return "base";
 
-  if (typeof step.next === 'string') {
+  if (typeof step.next === "string") {
     return step.next;
   }
 

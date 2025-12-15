@@ -46,8 +46,6 @@ export async function action({ request }: Route.ActionArgs) {
   session.set("characterData", newData);
   const headers = { "Set-Cookie": await commitSession(session) };
 
-  console.log("Selected origin:", result.data);
-
   // Redireciona para tela dedicada da origem
   const nextPath = `/builder/origin/${slugify(result.data)}`;
   return redirect(nextPath, { headers });

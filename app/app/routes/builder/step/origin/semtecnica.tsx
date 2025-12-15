@@ -11,30 +11,19 @@ import { z } from 'zod';
 
 import { getAuthCode, getSession, commitSession } from '~/utils/auth.server';
 import {
-  ATTRIBUTE_VALUES,
   CharacterSheetSchema,
-  NaturalTalentSchema,
+  OriginDetailsSchema,
 } from '~/types/builder';
 import { flow, getNextStepId } from '~/types/flow';
 import type { Route } from './+types/semtecnica';
 
-// 🔹 Mapeamento atributo → nome
-const attrNames = {
-  for: 'Força',
-  des: 'Destreza',
-  con: 'Constituição',
-  int: 'Inteligência',
-  sab: 'Sabedoria',
-  pre: 'Presença',
-};
-
-// 🔹 Talentos válidos para Sem-Técnica no nível 1 (p.163+)
+// 🔹 Talentos válidos para Sem-Técnica no nível 1
 const LEVEL_1_TALENTS = [
   { id: 'Incremento de Atributo', desc: 'Aumenta um atributo em +2 (máx 30)' },
   { id: 'Adepto de Briga', desc: '+2 em Acrobacia e Atletismo' },
   { id: 'Adepto de Medicina', desc: '+2 em Medicina e Sobrevivência' },
   { id: 'Alma Inquebrável', desc: '+2 em testes contra efeitos mentais' },
-  { id: 'Resistência Fícia', desc: '+2 em Fortitude' },
+  { id: 'Resistência Física', desc: '+2 em Fortitude' },
   { id: 'Gosto pela Luta', desc: '+2 em ataques corpo a corpo e dano' },
   { id: 'Saltador Constante', desc: '+4,5m em Deslocamento' },
 ];
@@ -51,70 +40,72 @@ export async function loader({ request }: Route.LoaderArgs) {
     return redirect('/builder/step/origin');
   }
 
-  return { code, savedData };
+  return { savedData };
 }
 
-// ✅ action
+// ✅ action — com originDetails
 export async function action({ request }: Route.ActionArgs) {
-  const code = await getAuthCode(request);
-  if (!code) return redirect('/');
-
-  const formData = await request.formData();
-  const intent = formData.get('intent')?.toString() ?? 'submit';
-
   const session = await getSession(request);
   const existing = session.get('characterData') ?? {};
-  let updated = { ...existing };
 
-  if (intent === 'update' && formData.get('field')) {
-    const field = formData.get('field')!.toString();
-    const value = formData.get('value')?.toString() ?? '';
-    updated = { ...updated, [field]: value };
+  const formData = await request.formData();
+
+  // 🔹 Extrai dados
+  const bonusAttr1 = formData.get('bonusAttr1')?.toString();
+  const bonusAttr2 = formData.get('bonusAttr2')?.toString();
+  const naturalTalent = formData.get('naturalTalent')?.toString();
+  const vow = formData.get('vow')?.toString();
+
+  // 🔹 Validação manual
+  if (!bonusAttr1 || !bonusAttr2) {
+    return { errors: { bonusAttr1: ['Atributos obrigatórios'] } };
+  }
+  if (bonusAttr1 === bonusAttr2) {
+    return { errors: { bonusAttr2: ['Os atributos devem ser diferentes'] } };
   }
 
-  if (intent === 'submit') {
-    const result = CharacterSheetSchema.safeParse({
-      origin: 'Sem-Técnica',
-      bonusAttr1: formData.get('bonusAttr1'),
-      bonusAttr2: formData.get('bonusAttr2'),
-      talents: {
-        level1: formData.get('naturalTalent')
-      }
-    });
+  // 🔹 Monta originDetails
+  const originDetails = OriginDetailsSchema.safeParse({
+    type: 'Sem-Técnica',
+    vow: vow || undefined,
+  });
 
-    if (!result.success) {
-      return {
-        errors: result.error.flatten().fieldErrors,
-        submitted: Object.fromEntries(formData.entries()),
-      };
-    }
-
-    // Atributos devem ser diferentes
-    if (result.data.bonusAttr1 === result.data.bonusAttr2) {
-      return {
-        errors: { bonusAttr2: ['Os atributos devem ser diferentes'] },
-        submitted: Object.fromEntries(formData.entries()),
-      };
-    }
-
-    updated = { ...updated, ...result.data };
+  if (!originDetails.success) {
+    return {
+      errors: originDetails.error.flatten().fieldErrors,
+      submitted: Object.fromEntries(formData.entries()),
+    };
   }
 
-  session.set('characterData', updated);
+  // 🔹 Monta dados completos
+  const updated = {
+    ...existing,
+    origin: 'Sem-Técnica' as const,
+    originDetails: originDetails.data,
+    bonusAttr1,
+    bonusAttr2,
+    naturalTalent,
+    talents: { level1: naturalTalent },
+  };
+
+  const result = CharacterSheetSchema.safeParse(updated);
+  if (!result.success) {
+    return {
+      errors: result.error.flatten().fieldErrors,
+      submitted: Object.fromEntries(formData.entries()),
+    };
+  }
+
+  session.set('characterData', result.data);
   const headers = { 'Set-Cookie': await commitSession(session) };
 
-  if (intent === 'submit') {
-    const nextStepId = getNextStepId('origin', updated);
-    const nextStep = flow.find((s) => s.id === nextStepId);
-    if (!nextStep)
-      throw new Error(`Próxima etapa '${nextStepId}' não encontrada`);
-    return redirect(nextStep.path, { headers });
-  }
-
-  return redirect('/builder/origin/sem-tecnica', { headers });
+  const nextStepId = getNextStepId('origin', result.data);
+  const nextStep = flow.find(s => s.id === nextStepId);
+  if (!nextStep) throw new Error(`Próxima etapa '${nextStepId}' não encontrada`);
+  return redirect(nextStep.path, { headers });
 }
 
-// ✅ Componente — 100% SSR, radio buttons, sem JS obrigatório
+// ✅ Componente — SSR-only
 export default function SemTecnicaOrigin() {
   const { savedData } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -122,10 +113,20 @@ export default function SemTecnicaOrigin() {
   const navigate = useNavigate();
   const isSubmitting = navigation.state === 'submitting';
 
-  // Valores atuais (do loader)
+  // 🔹 Valores atuais
   const bonusAttr1 = savedData.bonusAttr1 ?? 'for';
   const bonusAttr2 = savedData.bonusAttr2 ?? 'des';
   const naturalTalent = savedData.naturalTalent ?? '';
+  const vow = savedData.originDetails?.vow ?? '';
+
+  const attrNames = {
+    for: 'Força',
+    des: 'Destreza',
+    con: 'Constituição',
+    int: 'Inteligência',
+    sab: 'Sabedoria',
+    pre: 'Presença',
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 text-white py-8 px-4 sm:px-6">
@@ -135,33 +136,17 @@ export default function SemTecnicaOrigin() {
             Origem: <span className="text-red-300">Sem-Técnica</span>
           </h1>
           <p className="text-gray-400">
-            Você não possui uma técnica amaldiçoada — mas domina o combate com
-            puro treinamento, força de vontade e domínio corporal. Sua energia
-            amaldiçoada é bruta, direta e letal.
+            Você não possui uma técnica amaldiçoada — mas domina o combate com puro treinamento, força de vontade e domínio corporal.
           </p>
         </div>
 
         <div className="bg-gray-800 rounded-xl p-6 shadow-lg border border-red-700/30">
           <div className="mb-6 p-4 bg-red-900/20 rounded-lg border border-red-800">
-            <h3 className="font-bold text-red-300 mb-2">
-              Benefícios da Origem Sem-Técnica
-            </h3>
+            <h3 className="font-bold text-red-300 mb-2">Benefícios da Origem Sem-Técnica</h3>
             <ul className="list-disc pl-5 space-y-1 text-sm">
-              <li>
-                <strong>Bônus em Atributos:</strong> +1 em Força e +1 em
-                Destreza
-              </li>
-              <li>
-                <strong>Talento Natural:</strong> 1 talento à escolha no 1º
-                nível
-              </li>
-              <li>
-                <strong>Combate Amaldiçoado:</strong> +1d6 de dano em ataques
-                corpo a corpo
-              </li>
-              <li>
-                <strong>Resistência Superior:</strong> +2 em testes de Fortitude
-              </li>
+              <li><strong>+1 em dois atributos</strong> (escolha livre, mas diferentes)</li>
+              <li><strong>1 Talento Natural</strong> no 1º nível</li>
+              <li><strong>Voto Congênito (opcional)</strong> — pode ser adicionado mais tarde</li>
             </ul>
           </div>
 
@@ -170,38 +155,36 @@ export default function SemTecnicaOrigin() {
 
             {/* BÔNUS DE ATRIBUTOS */}
             <div>
-              <h3 className="text-xl font-bold mb-4">Bônus em Atributos</h3>
-              <p className="text-sm text-gray-400 mb-3">
-                Por padrão, Sem-Técnica concede{' '}
-                <strong>+1 em Força e +1 em Destreza</strong> (regra fixa).
-              </p>
+              <h3 className="text-xl font-bold mb-4">Bônus em Atributos (+1 em dois)</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Atributo +1 (1º)
-                  </label>
+                  <label className="block text-sm font-medium mb-2">Atributo +1 (1º)</label>
                   <select
                     name="bonusAttr1"
-                    defaultValue="for"
-                    readOnly
-                    className="w-full p-2 bg-gray-700 rounded border border-gray-600 cursor-not-allowed"
+                    defaultValue={bonusAttr1}
+                    className="w-full p-2 bg-gray-700 rounded border border-gray-600"
                     required
                   >
-                    <option value="for">Força</option>
+                    {Object.entries(attrNames).map(([key, name]) => (
+                      <option key={key} value={key}>{name}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Atributo +1 (2º)
+                    Atributo +1 (2º) <span className="text-gray-500">(diferente do anterior)</span>
                   </label>
                   <select
                     name="bonusAttr2"
-                    defaultValue="des"
-                    readOnly
-                    className="w-full p-2 bg-gray-700 rounded border border-gray-600 cursor-not-allowed"
+                    defaultValue={bonusAttr2}
+                    className="w-full p-2 bg-gray-700 rounded border border-gray-600"
                     required
                   >
-                    <option value="des">Destreza</option>
+                    {Object.entries(attrNames)
+                      .filter(([key]) => key !== bonusAttr1)
+                      .map(([key, name]) => (
+                        <option key={key} value={key}>{name}</option>
+                      ))}
                   </select>
                 </div>
               </div>
@@ -211,16 +194,17 @@ export default function SemTecnicaOrigin() {
             <div>
               <h3 className="text-xl font-bold mb-3">Talento Natural</h3>
               <p className="text-sm text-gray-400 mb-4">
-                Escolha 1 talento (p.163 do Livro de Regras). Este é o único
-                talento concedido no 1º nível para Sem-Técnica.
+                Escolha <strong>1 talento</strong> (p.163 do Livro de Regras).
               </p>
               <div className="space-y-3">
-                {LEVEL_1_TALENTS.map((talent) => {
+                {LEVEL_1_TALENTS.map(talent => {
                   const isChecked = naturalTalent === talent.id;
                   return (
                     <label
                       key={talent.id}
-                      className={`flex items-start p-4 rounded-lg border-2 cursor-pointer transition border-gray-600 bg-gray-800 hover:border-red-400`}
+                      className={`flex items-start p-4 rounded-lg border-2 cursor-pointer transition ${
+                        isChecked ? 'border-red-500 bg-red-900/20' : 'border-gray-600 bg-gray-800 hover:border-red-400'
+                      }`}
                     >
                       <input
                         type="radio"
@@ -232,19 +216,30 @@ export default function SemTecnicaOrigin() {
                       />
                       <div className="ml-4">
                         <div className="font-medium">{talent.id}</div>
-                        <div className="text-sm text-gray-300">
-                          {talent.desc}
-                        </div>
+                        <div className="text-sm text-gray-300">{talent.desc}</div>
                       </div>
                     </label>
                   );
                 })}
               </div>
               {actionData?.errors?.naturalTalent && (
-                <p className="text-red-400 text-sm mt-2">
-                  {actionData.errors.naturalTalent[0]}
-                </p>
+                <p className="text-red-400 text-sm mt-2">{actionData.errors.naturalTalent[0]}</p>
               )}
+            </div>
+
+            {/* VOTO (OPCIONAL) */}
+            <div>
+              <h3 className="text-xl font-bold mb-2">Voto Congênito (opcional)</h3>
+              <p className="text-sm text-gray-400 mb-2">
+                Algumas pessoas de Sem-Técnica nascem com um voto ligado à alma. Ex: <em>"Nunca recuo"</em>, <em>"Não uso armas de fogo"</em>.
+              </p>
+              <input
+                type="text"
+                name="vow"
+                defaultValue={vow}
+                placeholder="Ex: Nunca recuarei de um desafio"
+                className="w-full p-3 bg-gray-700 rounded border border-gray-600"
+              />
             </div>
 
             <div className="flex justify-between pt-6">

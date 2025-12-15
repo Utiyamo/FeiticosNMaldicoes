@@ -77,7 +77,7 @@ export async function action({ request }: Route.ActionArgs) {
   return redirect(nextStep.path, { headers });
 }
 
-// ✅ Componente — simples, funcional, acessível
+// ✅ Componente — simples, funcional, acessível, SSR-only
 export default function AttributeIncrementStep() {
   const { savedData } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -117,38 +117,32 @@ export default function AttributeIncrementStep() {
 
             <div>
               <h3 className="text-xl font-bold mb-3">Escolha o atributo para incrementar</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-3">
                 {Object.entries(attrNames).map(([key, name]) => {
                   const value = attrs[key as keyof typeof attrs] ?? 10;
                   const canIncrement = value <= 28;
-                  const isChecked = savedData.attributeIncrement === key;
 
                   return (
                     <label
                       key={key}
-                      className={`p-3 rounded border cursor-pointer transition ${
-                        isChecked
-                          ? 'border-amber-500 bg-amber-900/20'
-                          : canIncrement
-                          ? 'border-gray-600 bg-gray-800 hover:border-amber-400'
-                          : 'border-gray-800 bg-gray-900/50 cursor-not-allowed opacity-60'
-                      }`}
+                      className={`flex items-start p-4 rounded-lg border-2 cursor-pointer transition-colors border-gray-600 bg-gray-800 hover:border-amber-400`}
                     >
                       <input
                         type="radio"
                         name="attributeToIncrement"
                         value={key}
-                        defaultChecked={isChecked}
+                        defaultChecked={savedData.attributeIncrement === key}
                         disabled={!canIncrement}
-                        className="sr-only"
+                        className="mt-1 text-amber-500"
+                        required
                       />
-                      <div className="flex justify-between">
-                        <span>{name}</span>
-                        <span className="font-mono">{value} → {value + (canIncrement ? 2 : 0)}</span>
+                      <div className="ml-4">
+                        <div className="font-medium">{name}</div>
+                        <div className="text-sm text-gray-300">
+                          {value} → {value + (canIncrement ? 2 : 0)}
+                          {!canIncrement && <span className="text-red-400"> (máx)</span>}
+                        </div>
                       </div>
-                      {!canIncrement && (
-                        <p className="text-xs text-red-400 mt-1">Máximo atingido</p>
-                      )}
                     </label>
                   );
                 })}
